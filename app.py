@@ -1,37 +1,49 @@
 from flask import Flask, request, Response
 import os
 from openai import OpenAI
-from twilio.twiml.voice_response import VoiceResponse
+from twilio.twiml.voice_response import VoiceResponse, Gather
 
 app = Flask(__name__)
 
-# Initialize OpenAI client
+# OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @app.route("/voice", methods=["POST"])
 def voice():
     resp = VoiceResponse()
-    try:
-        # Example: capture what caller says (Twilio sends transcript in SpeechResult if using <Gather>)
-        user_message = "Hello, this is a test."  # hardcoded for now
 
-        # Call OpenAI
+    # Check if caller already said something
+    user_message = request.values.get("SpeechResult")
+
+    if not user_message:
+        # First time: ask caller to speak
+        gather = Gather(input="speech", action="/voice", timeout=5)
+        gather.say("Hello, I am your AI assistant. How can I help you today?")
+        resp.append(gather)
+        return Response(str(resp), mimetype="text/xml")
+
+    try:
+        print("CALLER SAID:", user_message)
+
+        # Send caller’s message to OpenAI
         completion = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are a friendly AI receptionist."},
+                {"role": "system", "content": "You are a polite receptionist. You can answer questions and help schedule appointments."},
                 {"role": "user", "content": user_message}
             ]
         )
 
         answer = completion.choices[0].message.content
-        print("OPENAI RESPONSE:", answer)  # log to Render
+        print("OPENAI RESPONSE:", answer)
 
-        # Speak back with Twilio
-        resp.say(answer)
+        # Speak AI’s response back to caller
+        gather = Gather(input="speech", action="/voice", timeout=5)
+        gather.say(answer)
+        resp.append(gather)
 
     except Exception as e:
-        print("ERROR:", str(e))  # log errors to Render
+        print("ERROR:", str(e))
         resp.say("Sorry, I had trouble answering that.")
 
     return Response(str(resp), mimetype="text/xml")
